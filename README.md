@@ -16,7 +16,8 @@ Sistema de correção automática de provas escolares com múltipla escolha usan
 8. [Estrutura de arquivos](#estrutura-de-arquivos)
 9. [Bibliotecas utilizadas](#bibliotecas-utilizadas)
 10. [Banco de dados](#banco-de-dados)
-11. [Solução de problemas comuns](#solução-de-problemas-comuns)
+11. [Como o ZIP de PDFs é gerado](#como-o-zip-de-pdfs-é-gerado)
+12. [Solução de problemas comuns](#solução-de-problemas-comuns)
 
 ---
 
@@ -103,27 +104,23 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. Crie o arquivo `.env`
+### 4. Crie o arquivo `.env` a partir do exemplo
 ```bash
 # Linux / macOS
-touch .env
+cp .env_example .env
 
-# Windows (PowerShell)
-New-Item .env
+# Windows
+copy .env_example .env
 ```
 
-Adicione o conteúdo (veja a seção abaixo sobre como obter a chave):
+Abra o arquivo `.env` e substitua `your_api_key_here` pela sua chave real:
 ```
 GEMINI_API_KEY=AIzaSuaChaveAqui
 ```
 
-### 5. Crie o `.gitignore`
-```bash
-# Linux / macOS
-touch .gitignore
-```
+### 5. Confirme que o `.gitignore` está correto
 
-Conteúdo do `.gitignore`:
+O projeto já inclui um `.gitignore`. Confirme que ele contém no mínimo:
 ```
 .env
 venv/
@@ -171,18 +168,19 @@ O arquivo `.env` deve ficar na raiz do projeto, no mesmo nível do `app.py`:
 
 ```
 gabarito_ia/
-├── .env          ← aqui
+├── .env          ← aqui (não vai para o GitHub)
+├── .env_example  ← template público (vai para o GitHub)
 ├── app.py
 ├── database.py
 └── ...
 ```
 
-Conteúdo:
+Conteúdo do `.env`:
 ```env
 GEMINI_API_KEY=AIzaSuaChaveAqui
 ```
 
-> O arquivo `.env` **nunca deve ser enviado para o GitHub**. Certifique-se de que `.env` está no `.gitignore`.
+> O arquivo `.env` **nunca deve ser enviado para o GitHub**. O `.env_example` é o template público que vai para o repositório no lugar dele.
 
 ---
 
@@ -218,6 +216,7 @@ gabarito_ia/
 ├── database.py                   # Modelos do banco de dados (SQLAlchemy + SQLite)
 ├── requirements.txt              # Dependências Python
 ├── .env                          # Chave API Gemini (não enviar para o GitHub)
+├── .env_example                  # Template público da configuração (vai para o GitHub)
 ├── .gitignore                    # Arquivos ignorados pelo Git
 ├── gabarito.db                   # Banco de dados SQLite (criado automaticamente)
 │
@@ -369,6 +368,15 @@ img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
 
 ---
 
+### `zipfile` (biblioteca padrão do Python)
+**O que faz:** cria e manipula arquivos ZIP. Faz parte da biblioteca padrão do Python, ou seja, **não precisa ser instalada** e não aparece no `requirements.txt`.
+
+**Por que foi escolhida:** o professor precisa baixar um PDF por aluno de uma só vez. Em vez de fazer N downloads separados, o sistema empacota todos os PDFs em um único arquivo ZIP para download único.
+
+**Onde é usado:** `pages/2_Provas.py`.
+
+---
+
 ## Banco de dados
 
 O banco de dados é um arquivo SQLite criado automaticamente em `gabarito.db` na primeira execução. Não é necessária nenhuma configuração adicional.
@@ -386,6 +394,62 @@ O banco de dados é um arquivo SQLite criado automaticamente em `gabarito.db` na
 
 ### Regra de negócio importante
 A soma dos pesos de todas as questões de uma prova **deve ser exatamente 10**. O sistema valida isso na interface de cadastro e só permite gerar os PDFs quando a soma estiver correta.
+
+---
+
+## Como o ZIP de PDFs é gerado
+
+Quando o professor clica em **"Gerar PDFs de todos os alunos"** na página de Provas, o sistema gera um arquivo ZIP contendo um PDF por aluno. Todo o processo acontece **em memória RAM**, sem salvar nenhum arquivo temporário no disco.
+
+### O que acontece internamente
+
+```python
+import zipfile
+import io
+
+# 1. Gera os bytes de cada PDF individualmente
+pdfs = gerar_todos_pdfs(alunos, prova, questoes)
+# pdfs = {"456": b"...bytes do PDF da Sheila...", "778": b"...bytes do PDF da Sandy...", ...}
+
+# 2. Cria um buffer em memória para o ZIP (sem salvar no disco)
+zip_buffer = io.BytesIO()
+
+# 3. Abre o buffer como um arquivo ZIP com compressão DEFLATED
+with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+    for matricula, pdf_bytes in pdfs.items():
+        # 4. Adiciona cada PDF ao ZIP com nome baseado na matrícula
+        zf.writestr(f"gabarito_{matricula}.pdf", pdf_bytes)
+
+# 5. Volta o cursor para o início do buffer para leitura
+zip_buffer.seek(0)
+
+# 6. Streamlit serve o buffer diretamente para download no navegador
+st.download_button(
+    label="Baixar todos os PDFs (ZIP)",
+    data=zip_buffer.read(),
+    file_name=f"gabaritos_{prova.titulo}.zip",
+    mime="application/zip",
+)
+```
+
+### Por que tudo fica em memória
+
+O uso de `io.BytesIO()` cria um buffer em memória que se comporta como um arquivo, mas nunca toca o disco. Isso tem três vantagens:
+
+- **Sem arquivos temporários:** nada é gravado no servidor, evitando acúmulo de arquivos
+- **Mais rápido:** operações em RAM são muito mais rápidas que I/O em disco
+- **Mais limpo:** ao finalizar o processo, a memória é liberada automaticamente pelo Python
+
+### Estrutura do ZIP gerado
+
+```
+gabaritos_Redes_de_Computadores.zip
+├── gabarito_456.pdf    ← folha da Sheila (matrícula 456)
+├── gabarito_556.pdf    ← folha do Vytor (matrícula 556)
+└── gabarito_778.pdf    ← folha da Sandy (matrícula 778)
+```
+
+Cada PDF contém o nome, matrícula, QR Code único e o grid de bolhas para aquele aluno específico.
 
 ---
 
