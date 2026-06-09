@@ -1,0 +1,32 @@
+# Ambiente virtual
+venv/
+.venv/
+
+# Variáveis de ambiente (chave da API)
+.env
+
+# Banco de dados local
+gabarito.db
+
+# Cache do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Cache do Streamlit
+.streamlit/secrets.toml
+
+# Arquivos gerados em runtime
+*.zip
+*.xlsx
+*.pdf
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.code-workspace
